@@ -1,0 +1,44 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  passwordHash  String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  treesPlanted  Tree[]
+  badges        Badge[]
+  
+  impactLevel   String    @default("Beginner")
+  streakDays    Int       @default(0)
+}
+
+model Tree {
+  id          String    @id @default(cuid())
+  species     String
+  location    String
+  latitude    Float?
+  longitude   Float?
+  plantedAt   DateTime  @default(now())
+  
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Badge {
+  id          String    @id @default(cuid())
+  name        String
+  description String
+  earnedAt    DateTime  @default(now())
+  
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

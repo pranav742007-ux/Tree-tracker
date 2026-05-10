@@ -10,8 +10,19 @@ import {
   MapPin,
   TrendingUp,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Plus,
+  Loader2
 } from "lucide-react"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
 import { Navigation } from "@/components/navigation"
 import {
   AreaChart,
@@ -49,20 +60,22 @@ const MONTHLY_DATA = [
   { month: "Dec", trees: 5400 },
 ]
 
-const MOCK_TREES = [
-  { id: "TRK-001", species: "Oak", location: "California, USA", growth: 85, health: "Optimal", planted: "Jan 12, 2026" },
-  { id: "TRK-002", species: "Pine", location: "Oregon, USA", growth: 72, health: "Stable", planted: "Jan 15, 2026" },
-  { id: "TRK-003", species: "Maple", location: "Vermont, USA", growth: 45, health: "Needs Water", planted: "Feb 3, 2026" },
-  { id: "TRK-004", species: "Redwood", location: "California, USA", growth: 91, health: "Optimal", planted: "Feb 8, 2026" },
-  { id: "TRK-005", species: "Birch", location: "Maine, USA", growth: 68, health: "Stable", planted: "Mar 1, 2026" },
-  { id: "TRK-006", species: "Cedar", location: "Washington, USA", growth: 78, health: "Optimal", planted: "Mar 14, 2026" },
-  { id: "TRK-007", species: "Willow", location: "New York, USA", growth: 32, health: "Needs Water", planted: "Apr 2, 2026" },
-  { id: "TRK-008", species: "Spruce", location: "Colorado, USA", growth: 89, health: "Optimal", planted: "Apr 19, 2026" },
-  { id: "TRK-009", species: "Elm", location: "Michigan, USA", growth: 56, health: "Stable", planted: "May 1, 2026" },
-  { id: "TRK-010", species: "Sequoia", location: "California, USA", growth: 94, health: "Optimal", planted: "May 5, 2026" },
-  { id: "TRK-011", species: "Aspen", location: "Colorado, USA", growth: 41, health: "Needs Water", planted: "May 8, 2026" },
-  { id: "TRK-012", species: "Dogwood", location: "Virginia, USA", growth: 63, health: "Stable", planted: "May 9, 2026" },
-]
+// Helper to generate deterministic UI fields for DB trees
+const generateTreeUI = (tree: any) => {
+  // Simple hash of ID to generate consistent fake growth/health since it's not in DB yet
+  const hash = tree.id.charCodeAt(tree.id.length - 1) || 50;
+  const growth = 30 + (hash % 70); // 30-100
+  let health = "Stable";
+  if (growth > 75) health = "Optimal";
+  else if (growth < 45) health = "Needs Water";
+
+  return {
+    ...tree,
+    growth,
+    health,
+    planted: new Date(tree.plantedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
+}
 
 function getHealthColor(health: string) {
   switch (health) {
@@ -108,7 +121,26 @@ export default function DashboardPage() {
   // Real-time API state
   const [metrics, setMetrics] = useState<any[]>([])
   const [chartData, setChartData] = useState<any[]>([])
+  const [dbTrees, setDbTrees] = useState<any[]>([])
   const [isLive, setIsLive] = useState(false)
+  const [isPlanting, setIsPlanting] = useState(false)
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
+
+  // New Tree Form State
+  const [newSpecies, setNewSpecies] = useState("")
+  const [newLocation, setNewLocation] = useState("")
+
+  const fetchTrees = async () => {
+    try {
+      const res = await fetch('/api/trees')
+      if (res.ok) {
+        const data = await res.json()
+        setDbTrees(data.map(generateTreeUI))
+      }
+    } catch (e) {
+      console.error("Failed to fetch trees:", e)
+    }
+  }
 
   // Fetch real-time data
   useEffect(() => {
@@ -130,13 +162,46 @@ export default function DashboardPage() {
 
     // Initial fetch
     fetchLiveMetrics()
+    fetchTrees()
 
     // Poll every 5 seconds for live updates
-    const interval = setInterval(fetchLiveMetrics, 5000)
+    const interval = setInterval(() => {
+      fetchLiveMetrics()
+      fetchTrees()
+    }, 5000)
     return () => clearInterval(interval)
   }, [])
 
-  const visibleTrees = showAll ? MOCK_TREES : MOCK_TREES.slice(0, 8)
+  const handlePlantTree = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newSpecies || !newLocation) return
+
+    setIsPlanting(true)
+    try {
+      const res = await fetch('/api/trees', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          species: newSpecies,
+          location: newLocation,
+          latitude: 0,
+          longitude: 0
+        })
+      })
+      if (res.ok) {
+        await fetchTrees()
+        setNewSpecies("")
+        setNewLocation("")
+        setIsDialogOpen(false)
+      }
+    } catch (error) {
+      console.error("Planting failed:", error)
+    } finally {
+      setIsPlanting(false)
+    }
+  }
+
+  const visibleTrees = showAll ? dbTrees : dbTrees.slice(0, 8)
 
   return (
     <div className="min-h-screen bg-background">
@@ -340,19 +405,61 @@ export default function DashboardPage() {
           <div className="glass-card rounded-2xl p-6 animate-fade-in-up [animation-delay:300ms]">
             <div className="flex items-center justify-between mb-6">
               <div>
-                <h3 className="text-lg font-semibold">Live Inventory</h3>
-                <p className="text-sm text-muted-foreground">Recently tracked saplings — {MOCK_TREES.length} total</p>
+                <h3 className="text-lg font-semibold">Live Database Inventory</h3>
+                <p className="text-sm text-muted-foreground">Recently tracked saplings — {dbTrees.length} total</p>
               </div>
-              <button
-                onClick={() => setShowAll(!showAll)}
-                className="px-4 py-2 text-sm font-medium text-primary bg-primary/10 rounded-xl hover:bg-primary/20 transition-colors flex items-center gap-2"
-              >
-                {showAll ? (
-                  <>Show Less <ChevronUp className="h-4 w-4" /></>
-                ) : (
-                  <>View All <ChevronDown className="h-4 w-4" /></>
-                )}
-              </button>
+              <div className="flex items-center gap-3">
+                <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button className="rounded-xl flex items-center gap-2">
+                      <Plus className="h-4 w-4" />
+                      Log a Tree
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-[425px] glass-card border-border/50">
+                    <DialogHeader>
+                      <DialogTitle>Plant a New Tree</DialogTitle>
+                    </DialogHeader>
+                    <form onSubmit={handlePlantTree} className="space-y-4 mt-4">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Species</label>
+                        <Input 
+                          placeholder="e.g. White Oak" 
+                          value={newSpecies}
+                          onChange={(e) => setNewSpecies(e.target.value)}
+                          className="bg-secondary/50 border-border/50"
+                          required
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Location</label>
+                        <Input 
+                          placeholder="e.g. Seattle, WA" 
+                          value={newLocation}
+                          onChange={(e) => setNewLocation(e.target.value)}
+                          className="bg-secondary/50 border-border/50"
+                          required
+                        />
+                      </div>
+                      <Button type="submit" className="w-full" disabled={isPlanting}>
+                        {isPlanting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
+                        {isPlanting ? "Saving to Database..." : "Log Tree in DB"}
+                      </Button>
+                    </form>
+                  </DialogContent>
+                </Dialog>
+                
+                <button
+                  onClick={() => setShowAll(!showAll)}
+                  className="px-4 py-2 text-sm font-medium text-primary bg-primary/10 rounded-xl hover:bg-primary/20 transition-colors flex items-center gap-2"
+                >
+                  {showAll ? (
+                    <>Show Less <ChevronUp className="h-4 w-4" /></>
+                  ) : (
+                    <>View All <ChevronDown className="h-4 w-4" /></>
+                  )}
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -368,44 +475,53 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleTrees.map((tree) => (
-                    <tr
-                      key={tree.id}
-                      className="border-b border-border/30 hover:bg-secondary/20 transition-colors"
-                    >
-                      <td className="py-4 px-4">
-                        <span className="font-mono text-sm text-primary">{tree.id}</span>
-                      </td>
-                      <td className="py-4 px-4">
-                        <span className="font-medium">{tree.species}</span>
-                      </td>
-                      <td className="py-4 px-4">
-                        <span className="text-muted-foreground text-sm flex items-center gap-1">
-                          <MapPin className="h-3 w-3" />
-                          {tree.location}
-                        </span>
-                      </td>
-                      <td className="py-4 px-4">
-                        <span className="text-muted-foreground text-sm">{tree.planted}</span>
-                      </td>
-                      <td className="py-4 px-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-24 h-2 bg-secondary rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-primary rounded-full transition-all duration-500"
-                              style={{ width: `${tree.growth}%` }}
-                            />
-                          </div>
-                          <span className="text-sm font-medium">{tree.growth}%</span>
-                        </div>
-                      </td>
-                      <td className="py-4 px-4">
-                        <span className={`inline-flex px-3 py-1 text-xs font-medium rounded-full border ${getHealthColor(tree.health)}`}>
-                          {tree.health}
-                        </span>
+                  {visibleTrees.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="text-center py-8 text-muted-foreground">
+                        No trees in the database yet. Click "Log a Tree" to add one!
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    visibleTrees.map((tree) => (
+                      <tr
+                        key={tree.id}
+                        className="border-b border-border/30 hover:bg-secondary/20 transition-colors"
+                      >
+                        <td className="py-4 px-4">
+                          <span className="font-mono text-sm text-primary">{tree.id.slice(0,8).toUpperCase()}</span>
+                        </td>
+                        <td className="py-4 px-4">
+                          <span className="font-medium">{tree.species}</span>
+                          {tree.user?.name && <div className="text-xs text-muted-foreground">by {tree.user.name}</div>}
+                        </td>
+                        <td className="py-4 px-4">
+                          <span className="text-muted-foreground text-sm flex items-center gap-1">
+                            <MapPin className="h-3 w-3" />
+                            {tree.location}
+                          </span>
+                        </td>
+                        <td className="py-4 px-4">
+                          <span className="text-muted-foreground text-sm">{tree.planted}</span>
+                        </td>
+                        <td className="py-4 px-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-24 h-2 bg-secondary rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-primary rounded-full transition-all duration-500"
+                                style={{ width: `${tree.growth}%` }}
+                              />
+                            </div>
+                            <span className="text-sm font-medium">{tree.growth}%</span>
+                          </div>
+                        </td>
+                        <td className="py-4 px-4">
+                          <span className={`inline-flex px-3 py-1 text-xs font-medium rounded-full border ${getHealthColor(tree.health)}`}>
+                            {tree.health}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>

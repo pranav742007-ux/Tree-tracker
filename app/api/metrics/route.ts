@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
+import { prisma } from '@/lib/db';
 
-// This simulates a real-time database backend
+// This simulates a real-time database backend while integrating actual database counts
 export async function GET() {
   // Use the current time to create a slow, deterministic upward trend
   // This ensures the data looks "live" and goes up continuously over time.
@@ -16,8 +17,16 @@ export async function GET() {
   const epoch = new Date().setHours(0,0,0,0);
   const secondsSinceEpoch = Math.floor((now - epoch) / 1000);
   
-  // Trees grow by ~1 every 5 seconds
-  const liveTrees = baseTrees + Math.floor(secondsSinceEpoch / 5);
+  // Get actual database tree count
+  let actualDbTrees = 0;
+  try {
+    actualDbTrees = await prisma.tree.count();
+  } catch (e) {
+    console.error("Failed to fetch tree count:", e);
+  }
+
+  // Trees grow by ~1 every 5 seconds, plus the actual ones logged in the database!
+  const liveTrees = baseTrees + Math.floor(secondsSinceEpoch / 5) + actualDbTrees;
   // CO2 offset grows slowly
   const liveCo2 = baseCo2 + Math.floor(secondsSinceEpoch / 15);
   // Water saved grows faster
